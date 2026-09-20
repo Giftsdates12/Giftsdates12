@@ -3425,6 +3425,25 @@ async def invite_location_confirm(did: str, user=Depends(get_current_user)):
         await notify(uid, "date_accepted", "Your date is confirmed", "The meeting location was confirmed. See details in Dates.", {"date_id": did}, email=True, link=DATES_LINK, cta="View Date")
     return {"ok": True, "status": "DATE_CONFIRMED"}
 
+@api.post("/invites/{did}/location/reject")
+async def invite_location_reject(did: str, user=Depends(get_current_user)):
+    d = await _get_party(did, user["id"], "recipient")
+    if d["status"] != "LOCATION_PROPOSED": raise HTTPException(400, "Nothing to reject")
+    # Invited person rejects the proposed location -> full refund back to the inviter
+    await _refund(d, "full_inviter", "CANCELLED")
+    # ...and their availability for that day+time is locked (shown as locked in the calendar)
+    lock_s = (d.get("location") or {}).get("scheduled_start") or d.get("proposed_start")
+    lock_e = (d.get("location") or {}).get("scheduled_end") or d.get("proposed_end")
+    if lock_s:
+        await db.users.update_one({"id": d["recipient_id"]}, {"$push": {"locked_slots": {
+            "date": lock_s[:10], "start": lock_s, "end": lock_e, "reason": "rejected_location",
+            "date_id": did, "locked_at": _iso()}}})
+    await _log_status(did, "CANCELLED", user["id"])
+    await notify(d["inviter_id"], "date_declined", "Your date location was rejected",
+                 f"{user['name']} rejected the proposed location. All coins were refunded to you.", {"date_id": did}, email=True, link=DATES_LINK, cta="View Details")
+    return {"ok": True, "status": "CANCELLED"}
+
+
 @api.post("/invites/{did}/taxi/request")
 async def invite_taxi_request(did: str, req: InviteTaxiReq, user=Depends(get_current_user)):
     d = await _get_party(did, user["id"], "recipient")
