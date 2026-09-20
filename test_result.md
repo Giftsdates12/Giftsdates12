@@ -218,3 +218,116 @@ agent_communication:
 - ✅ All tested endpoints responding as expected
 - ⚠️ Stripe payment endpoints NOT tested (no Stripe keys configured - as expected)
 - ⚠️ Email sending NOT tested (no email key configured - as expected)
+
+
+## STRIPE INTEGRATION TEST (added by main)
+backend:
+  - task: "Stripe claimable sandbox payments (checkout/status/webhook)"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Provisioned Emergent-managed claimable Stripe sandbox (Canada). Wired STRIPE_SECRET_KEY/PUBLISHABLE/ACCOUNT_ID/WEBHOOK_SECRET/MODE into backend/.env. Existing code: POST /api/payments/checkout (auth), GET /api/payments/status/{session_id}, webhook /api/stripe/webhook. Uses managed_payments (SMP) with automatic_tax fallback. Please verify checkout returns a valid checkout.stripe.com session URL and status polling returns pending before payment."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ STRIPE CHECKOUT FLOW FULLY WORKING (11/11 tests passed). Tested complete flow: 1) POST /api/payments/checkout for coin pack (small_talk) - Successfully created Stripe checkout session, returns checkout_url (https://checkout.stripe.com/...) and session_id (cs_test_a13ZiGIZMQgrSqRtau4Xu8STT4PBcOmfI2EHeLpDPbh46DPLx2AYDdDkOq). 2) POST /api/payments/checkout for premium_monthly - Successfully created Stripe checkout session, returns checkout_url and session_id (cs_test_a1UhYGqOjGJc31ib5SxanBMG9Cj4lQlV1ZQmT0p7ZDYfUItVf6gwLm1BOG). 3) GET /api/payments/status/{session_id} for both - Returns payment_status: 'pending', status: 'initiated' (as expected before card payment). 4) MongoDB verification - payment_transactions records created correctly: Coin pack ($9.99, 100 coins, type: coins), Premium ($29.99, type: premium). Stripe API integration working correctly. Card payment NOT attempted (as instructed). VIP subscription NOT tested (as instructed). NO ISSUES FOUND."
+
+agent_communication:
+    -agent: "main"
+    -message: "Stripe claimable sandbox is provisioned and keys are in backend/.env. Please register/login a user, then call POST /api/payments/checkout for a coin pack and a Premium purchase. Verify it returns a checkout_url pointing to checkout.stripe.com and a session_id, and that a payment_transactions row is created. Then GET /api/payments/status/{session_id} should return payment_status pending (do NOT complete a real card payment). Inspect server.py near line 2971-3037 for package_id values accepted by CheckoutReq. Do not test VIP subscription card billing if it needs a live card. Report results."
+    -agent: "testing"
+    -message: "✅ STRIPE CHECKOUT VERIFICATION COMPLETE - ALL TESTS PASSED (11/11). Stripe claimable sandbox integration is fully functional. ENDPOINTS TESTED: POST /api/payments/checkout (coin pack: small_talk), POST /api/payments/checkout (premium_monthly), GET /api/payments/status/{session_id} (both sessions). VERIFIED: Checkout URLs point to checkout.stripe.com, session_ids returned, payment_transactions records created in MongoDB with correct data (amount, package_id, status: initiated, payment_status: pending), status polling returns 'pending' before payment. Stripe API calls successful (200 responses). Test user: testuser_689d8ce7@example.com (ID: 37df34b7-b515-4608-8299-9df68cedf7d5). NO ISSUES FOUND. Card payment NOT attempted. VIP subscription NOT tested. The Stripe integration is production-ready for checkout flow."
+
+
+## Testing Session 2 - 2026-09-20
+**Testing Agent**: Stripe Checkout Flow Verification
+**Focus**: Stripe Claimable Sandbox Integration
+
+### Tests Executed:
+1. ✅ Backend Health Check - GET /api/ returns {service: "GiftsDates", ok: true}
+2. ✅ User Registration - POST /api/auth/register successfully creates user with JWT token
+3. ✅ User Login - POST /api/auth/login successfully authenticates and returns JWT token
+4. ✅ Authenticated Endpoint - GET /api/auth/me successfully returns user data with Bearer token
+5. ✅ Meta Endpoint - GET /api/meta returns gifts (8), coin packages (5), premium config
+6. ✅ Support Config - GET /api/support/config returns support hours and status
+7. ✅ Spin Config - GET /api/spin/config returns 8 prize configurations
+8. ✅ Stripe Checkout - Coin Pack - POST /api/payments/checkout (small_talk) creates valid checkout session
+9. ✅ Stripe Checkout - Premium - POST /api/payments/checkout (premium_monthly) creates valid checkout session
+10. ✅ Payment Status - Coin Pack - GET /api/payments/status/{session_id} returns pending status
+11. ✅ Payment Status - Premium - GET /api/payments/status/{session_id} returns pending status
+
+### Test Results: 11/11 PASSED (100%)
+
+### Stripe Checkout Sessions Created:
+- **Coin Pack (small_talk)**:
+  - Session ID: cs_test_a13ZiGIZMQgrSqRtau4Xu8STT4PBcOmfI2EHeLpDPbh46DPLx2AYDdDkOq
+  - Checkout URL: https://checkout.stripe.com/c/pay/cs_test_a13ZiGIZMQgrSqRtau4Xu8STT4PBcOmfI2EHeLpDPbh46DPLx2AYDdDkOq...
+  - Amount: $9.99 USD
+  - Coins: 100
+  - Status: initiated
+  - Payment Status: pending
+
+- **Premium Monthly**:
+  - Session ID: cs_test_a1UhYGqOjGJc31ib5SxanBMG9Cj4lQlV1ZQmT0p7ZDYfUItVf6gwLm1BOG
+  - Checkout URL: https://checkout.stripe.com/c/pay/cs_test_a1UhYGqOjGJc31ib5SxanBMG9Cj4lQlV1ZQmT0p7ZDYfUItVf6gwLm1BOG...
+  - Amount: $29.99 USD
+  - Type: premium
+  - Status: initiated
+  - Payment Status: pending
+
+### MongoDB Verification:
+- Database: test_database
+- Collection: payment_transactions
+- Records Created: 2
+- Both transactions correctly stored with:
+  - session_id (Stripe checkout session ID)
+  - user_id (authenticated user)
+  - package_id (small_talk, premium_monthly)
+  - amount (9.99, 29.99)
+  - currency (usd)
+  - status (initiated)
+  - payment_status (pending)
+  - metadata (type, coins)
+  - created_at (ISO timestamp)
+
+### Test User Created:
+- Email: testuser_689d8ce7@example.com
+- Password: SecurePass123!
+- User ID: 37df34b7-b515-4608-8299-9df68cedf7d5
+- Successfully registered, logged in, and created checkout sessions
+
+### Stripe API Verification:
+- Backend logs show successful Stripe API calls:
+  - POST https://api.stripe.com/v1/checkout/sessions (200 OK) - Coin pack
+  - POST https://api.stripe.com/v1/checkout/sessions (200 OK) - Premium
+  - GET https://api.stripe.com/v1/checkout/sessions/{session_id} (200 OK) - Status checks
+
+### Environment Verified:
+- Backend URL: https://login-saver-web.preview.emergentagent.com/api
+- Stripe Mode: test
+- Stripe Account: acct_1UHSPtIQgy6WHj0B (Canada sandbox)
+- MongoDB: Connected and operational (localhost:27017)
+- All routes properly prefixed with /api
+
+### Issues Found: NONE
+
+### Recommendations:
+- ✅ Stripe checkout flow is production-ready
+- ✅ Checkout session creation working correctly for coin packs and premium
+- ✅ Payment status polling working correctly
+- ✅ MongoDB transaction records created correctly
+- ✅ Stripe API integration working correctly
+- ⚠️ Card payment NOT attempted (as instructed - testing checkout creation only)
+- ⚠️ VIP subscription NOT tested (requires card billing - as instructed)
+- ⚠️ Webhook endpoint NOT tested (requires actual Stripe webhook events)
+
+### Valid Package IDs Discovered:
+**Coin Packs**: small_talk, starter, popular, extra, vip
+**Premium**: premium_monthly, premium_lite_monthly
+**VIP Subscription**: vip_monthly (NOT tested - requires card)
+**Custom**: custom (with usd_amount parameter)

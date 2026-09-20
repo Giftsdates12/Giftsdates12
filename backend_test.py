@@ -242,11 +242,127 @@ def test_spin_config():
         print_test("GET /api/spin/config (public)", False, f"Error: {str(e)}")
         return False
 
+def test_stripe_checkout_coin_pack(token):
+    """Test Stripe checkout for coin pack"""
+    print("=" * 60)
+    print("TEST 8: Stripe Checkout - Coin Pack (small_talk)")
+    print("=" * 60)
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {
+        "package_id": "small_talk",
+        "origin_url": "https://login-saver-web.preview.emergentagent.com"
+    }
+    
+    try:
+        response = requests.post(f"{BACKEND_URL}/payments/checkout", json=payload, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            checkout_url = data.get("checkout_url")
+            session_id = data.get("session_id")
+            
+            # Verify checkout_url points to Stripe
+            is_stripe_url = checkout_url and "checkout.stripe.com" in checkout_url
+            has_session_id = session_id is not None
+            
+            passed = is_stripe_url and has_session_id
+            
+            if passed:
+                details = f"Session ID: {session_id}\n   Checkout URL: {checkout_url[:80]}..."
+            else:
+                details = f"Stripe URL valid: {is_stripe_url}, Has Session ID: {has_session_id}"
+            
+            print_test("POST /api/payments/checkout (coin pack)", passed, details)
+            return passed, session_id if passed else None
+        else:
+            print_test("POST /api/payments/checkout (coin pack)", False, f"Status: {response.status_code}, Response: {response.text[:200]}")
+            return False, None
+            
+    except Exception as e:
+        print_test("POST /api/payments/checkout (coin pack)", False, f"Error: {str(e)}")
+        return False, None
+
+def test_stripe_checkout_premium(token):
+    """Test Stripe checkout for Premium monthly"""
+    print("=" * 60)
+    print("TEST 9: Stripe Checkout - Premium Monthly")
+    print("=" * 60)
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {
+        "package_id": "premium_monthly",
+        "origin_url": "https://login-saver-web.preview.emergentagent.com"
+    }
+    
+    try:
+        response = requests.post(f"{BACKEND_URL}/payments/checkout", json=payload, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            checkout_url = data.get("checkout_url")
+            session_id = data.get("session_id")
+            
+            # Verify checkout_url points to Stripe
+            is_stripe_url = checkout_url and "checkout.stripe.com" in checkout_url
+            has_session_id = session_id is not None
+            
+            passed = is_stripe_url and has_session_id
+            
+            if passed:
+                details = f"Session ID: {session_id}\n   Checkout URL: {checkout_url[:80]}..."
+            else:
+                details = f"Stripe URL valid: {is_stripe_url}, Has Session ID: {has_session_id}"
+            
+            print_test("POST /api/payments/checkout (premium)", passed, details)
+            return passed, session_id if passed else None
+        else:
+            print_test("POST /api/payments/checkout (premium)", False, f"Status: {response.status_code}, Response: {response.text[:200]}")
+            return False, None
+            
+    except Exception as e:
+        print_test("POST /api/payments/checkout (premium)", False, f"Error: {str(e)}")
+        return False, None
+
+def test_payment_status(session_id, test_name="Payment Status"):
+    """Test payment status endpoint"""
+    print("=" * 60)
+    print(f"TEST: {test_name} (GET /api/payments/status/{{session_id}})")
+    print("=" * 60)
+    
+    try:
+        response = requests.get(f"{BACKEND_URL}/payments/status/{session_id}", timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            payment_status = data.get("payment_status")
+            status = data.get("status")
+            
+            # Should be "pending" before payment is completed
+            passed = payment_status == "pending"
+            
+            details = f"Status: {status}, Payment Status: {payment_status}"
+            if not passed:
+                details += f" (Expected 'pending', got '{payment_status}')"
+            
+            print_test(f"GET /api/payments/status (session: {session_id[:20]}...)", passed, details)
+            return passed
+        elif response.status_code == 404:
+            print_test(f"GET /api/payments/status (session: {session_id[:20]}...)", False, "Transaction not found - payment_transactions record not created")
+            return False
+        else:
+            print_test(f"GET /api/payments/status (session: {session_id[:20]}...)", False, f"Status: {response.status_code}, Response: {response.text[:200]}")
+            return False
+            
+    except Exception as e:
+        print_test(f"GET /api/payments/status (session: {session_id[:20]}...)", False, f"Error: {str(e)}")
+        return False
+
 def main():
     """Run all tests"""
     print("\n" + "=" * 60)
     print("GIFTSDATES BACKEND API TESTING")
-    print("Testing Core Authentication Flow")
+    print("Testing Core Authentication Flow + Stripe Checkout")
     print("=" * 60 + "\n")
     
     results = []
@@ -283,6 +399,47 @@ def main():
     results.append(("Support Config", test_support_config()))
     results.append(("Spin Config", test_spin_config()))
     
+    # Test 8-11: Stripe Checkout Flow (only if authenticated)
+    coin_session_id = None
+    premium_session_id = None
+    
+    if token:
+        # Test 8: Checkout for coin pack
+        coin_passed, coin_session_id = test_stripe_checkout_coin_pack(token)
+        results.append(("Stripe Checkout - Coin Pack", coin_passed))
+        
+        # Test 9: Checkout for premium
+        premium_passed, premium_session_id = test_stripe_checkout_premium(token)
+        results.append(("Stripe Checkout - Premium", premium_passed))
+        
+        # Test 10: Payment status for coin pack
+        if coin_session_id:
+            coin_status_passed = test_payment_status(coin_session_id, "Payment Status - Coin Pack")
+            results.append(("Payment Status - Coin Pack", coin_status_passed))
+        else:
+            print("=" * 60)
+            print("TEST: Payment Status - Coin Pack - SKIPPED (no session_id)")
+            print("=" * 60 + "\n")
+            results.append(("Payment Status - Coin Pack", False))
+        
+        # Test 11: Payment status for premium
+        if premium_session_id:
+            premium_status_passed = test_payment_status(premium_session_id, "Payment Status - Premium")
+            results.append(("Payment Status - Premium", premium_status_passed))
+        else:
+            print("=" * 60)
+            print("TEST: Payment Status - Premium - SKIPPED (no session_id)")
+            print("=" * 60 + "\n")
+            results.append(("Payment Status - Premium", False))
+    else:
+        print("=" * 60)
+        print("STRIPE TESTS - SKIPPED (no authentication token)")
+        print("=" * 60 + "\n")
+        results.append(("Stripe Checkout - Coin Pack", False))
+        results.append(("Stripe Checkout - Premium", False))
+        results.append(("Payment Status - Coin Pack", False))
+        results.append(("Payment Status - Premium", False))
+    
     # Summary
     print("\n" + "=" * 60)
     print("TEST SUMMARY")
@@ -297,6 +454,11 @@ def main():
     
     print("\n" + "-" * 60)
     print(f"Total: {passed_count}/{total_count} tests passed")
+    print("\n" + "=" * 60)
+    print("NOTES:")
+    print("- Card payment NOT attempted (as instructed)")
+    print("- VIP subscription NOT tested (requires card billing)")
+    print("- Payment status should be 'pending' before card payment")
     print("=" * 60 + "\n")
     
     # Return exit code
