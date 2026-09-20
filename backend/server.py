@@ -3496,6 +3496,25 @@ async def invite_pickup_address(did: str, req: PickupAddrReq, user=Depends(get_c
     await notify(d["inviter_id"], "date_taxi", "Pickup address shared", f"{user['name']} shared a pickup address. Confirm pickup or pay taxi instead.", {"date_id": did}, email=True, link=DATES_LINK, cta="View Date")
     return {"ok": True, "status": "PICKUP_ADDRESS_SELECTED"}
 
+@api.post("/invites/{did}/pickup/reject")
+async def invite_pickup_reject(did: str, user=Depends(get_current_user)):
+    d = await _get_party(did, user["id"], "recipient")
+    if d["status"] != "PICKUP_ADDRESS_PENDING": raise HTTPException(400, "Nothing to reject")
+    # Invited person rejects the date after a pickup was offered -> all coins go back to the inviter
+    await _refund(d, "full_inviter", "CANCELLED")
+    # ...and their availability for that day+time is locked (shown as locked in the calendar)
+    lock_s = (d.get("location") or {}).get("scheduled_start") or d.get("proposed_start")
+    lock_e = (d.get("location") or {}).get("scheduled_end") or d.get("proposed_end")
+    if lock_s:
+        await db.users.update_one({"id": d["recipient_id"]}, {"$push": {"locked_slots": {
+            "date": lock_s[:10], "start": lock_s, "end": lock_e, "reason": "rejected_date",
+            "date_id": did, "locked_at": _iso()}}})
+    await _log_status(did, "CANCELLED", user["id"])
+    await notify(d["inviter_id"], "date_declined", "Your date was rejected",
+                 f"{user['name']} rejected the date. All coins were refunded to you.", {"date_id": did}, email=True, link=DATES_LINK, cta="View Details")
+    return {"ok": True, "status": "CANCELLED"}
+
+
 @api.post("/invites/{did}/pickup/confirm")
 async def invite_pickup_confirm(did: str, user=Depends(get_current_user)):
     d = await _get_party(did, user["id"], "inviter")

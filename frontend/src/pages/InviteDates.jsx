@@ -139,6 +139,10 @@ function DateCard({ d, reload }) {
     const total = Number(d.total_hold || d.coins || 0);
     if (window.confirm(tr("id_reject_location_warning", { total }) + "\n\n" + tr("id_reject_location_confirm"))) act(() => post("/location/reject"));
   };
+  const rejectPickup = () => {
+    const total = Number(d.total_hold || d.coins || 0);
+    if (window.confirm(tr("id_reject_date_warning", { total }) + "\n\n" + tr("id_reject_location_confirm"))) act(() => post("/pickup/reject"));
+  };
 
   const submitReport = () => act(async () => {
     if (details.trim().length < 10) { throw { response: { data: { detail: tr("id_report_min") } } }; }
@@ -242,10 +246,17 @@ function DateCard({ d, reload }) {
           <div className="w-full space-y-2 rounded-lg border border-white/10 p-2" data-testid={`date-pickup-addr-${d.id}`}>
             <div className="text-xs text-amber-200">{tr("id_pickup_share_hint")}</div>
             <AddressPicker value={pickup} onChange={setPickup} />
-            <Button data-testid={`date-pickup-submit-${d.id}`} disabled={busy || !((pickup.address || "").trim())} onClick={() => act(() => post("/pickup/address", {
-              pickup_address: [pickup.address, pickup.city, pickup.postal_code, pickup.country].filter(Boolean).join(", ") || pickup.address,
-              lat: pickup.lat, lng: pickup.lng, city: pickup.city, country: pickup.country, postal_code: pickup.postal_code,
-            }))} className="rose-btn text-white border-0 h-9">{tr("id_send")}</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button data-testid={`date-pickup-submit-${d.id}`} disabled={busy || !((pickup.address || "").trim())} onClick={() => act(() => post("/pickup/address", {
+                pickup_address: [pickup.address, pickup.city, pickup.postal_code, pickup.country].filter(Boolean).join(", ") || pickup.address,
+                lat: pickup.lat, lng: pickup.lng, city: pickup.city, country: pickup.country, postal_code: pickup.postal_code,
+              }))} className="rose-btn text-white border-0 h-9"><Check size={14} className="me-1" />{tr("id_accept_share_pickup")}</Button>
+              <Button data-testid={`date-pickup-reject-${d.id}`} disabled={busy} onClick={rejectPickup} variant="outline" className="h-9 bg-rose-500/10 border-rose-500/40 text-rose-300"><X size={14} className="me-1" />{tr("id_reject_date")}</Button>
+            </div>
+            <div className="flex items-start gap-1.5 text-[11px] text-amber-200/90 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2" data-testid={`date-pickup-reject-warning-${d.id}`}>
+              <ShieldAlert size={13} className="mt-0.5 shrink-0 text-amber-300" />
+              <span>{tr("id_reject_date_note", { total: Number(d.total_hold || d.coins || 0) })}</span>
+            </div>
           </div>
         )}
         {d.status === "PICKUP_ADDRESS_SELECTED" && isInv && (

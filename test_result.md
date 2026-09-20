@@ -580,3 +580,160 @@ INVITATION_SENT
     -message: "Test POST /api/invites/{did}/location/reject. Walk the flow to LOCATION_PROPOSED (register 2 users, seed coins for inviter, invite, accept/select activity, inviter proposes location). Then as the INVITED user call /location/reject and verify: (1) 200 and status becomes CANCELLED, (2) ALL escrow coins are refunded to the INVITER (check inviter coin balance increased by the held amount), (3) the invited user's user doc gets a locked_slots entry with reason 'rejected_location' for the proposed slot, and (4) a future invite for that same slot is blocked with SLOT_LOCKED. Also confirm the inviter cannot call /location/reject (recipient-only) and it fails outside LOCATION_PROPOSED. Reference backend_date_flow_test.py and backend_pickup_address_test.py. Do NOT test Stripe."
     -agent: "testing"
     -message: "✅ LOCATION REJECTION ENDPOINT TEST COMPLETE - ALL TESTS PASSED (3/3). The location rejection endpoint is fully functional. FLOW VERIFIED: Full escrow date flow from INVITATION_SENT → DATE_ACTIVITY_SELECTED → LOCATION_PROPOSED → CANCELLED (via rejection). ENDPOINTS TESTED: POST /api/invites (create invite with activity_option_1/2/3 + scheduled_start), POST /api/invites/{did}/choose (recipient chooses activity), POST /api/invites/{did}/location (inviter proposes location), POST /api/invites/{did}/location/reject (recipient rejects location), GET /api/invites/{did} (verify date status), GET /api/auth/me (verify coin balance and locked_slots). VERIFIED: (1) Recipient can reject proposed location: 200 response, status becomes CANCELLED. (2) Full refund to inviter: ALL escrow coins (300) returned to inviter, balance went from 9700 (after escrow) back to 10000 (original). (3) Recipient slot locked: locked_slots entry created with reason='rejected_location', start=scheduled_start, date_id=did. (4) Future invite blocked: Attempting to create a new invite for the same slot fails as expected. (5) Negative test: Inviter cannot reject (403 Forbidden - recipient-only endpoint). (6) Negative test: Cannot reject at wrong status (400 Bad Request when status is not LOCATION_PROPOSED). NO ISSUES FOUND. Test users: premv3@example.com (inviter with 10000 coins), fresh test recipients. Test file: /app/backend_location_reject_test.py."
+
+## PICKUP REJECT (accept or reject date) TEST (added by main)
+backend:
+  - task: "Reject date at pickup stage -> full refund to inviter + lock recipient slot"
+    implemented: true
+    working: true
+    file: "server.py"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "New endpoint POST /api/invites/{did}/pickup/reject. Recipient-only, requires status PICKUP_ADDRESS_PENDING (i.e. after the inviter offered a pickup). Does _refund(full_inviter) so ALL coins return to inviter, pushes locked_slots (reason=rejected_date) for recipient's slot, sets status CANCELLED, notifies inviter. The invited person can now either accept & share pickup address (/pickup/address) or reject the date (/pickup/reject)."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PICKUP REJECTION ENDPOINT FULLY WORKING (ALL TESTS PASSED 4/4). Tested complete flow: 1) Registered two users (inviter: premv3@example.com with 9400 coins, recipient: fresh test users). 2) Created date invite with custom activity options and scheduled_start. 3) Recipient chose activity (opt1). 4) Inviter proposed location with venue details. 5) Recipient requested taxi (50 coins) → status: TAXI_REQUESTED. 6) Inviter offered pickup → status: PICKUP_ADDRESS_PENDING. 7) Recipient rejected pickup (POST /api/invites/{did}/pickup/reject) → status: CANCELLED. 8) Verified FULL REFUND to inviter: balance returned from 9100 (after escrow) to 9400 (original balance). 9) Verified recipient's locked_slots entry: reason='rejected_date', start=scheduled_start, date_id=did. 10) Verified future invite for same slot is BLOCKED (invite creation fails as expected). 11) Negative test: Inviter cannot reject (403 Forbidden - recipient-only endpoint). 12) Negative test: Cannot reject at wrong status (400 Bad Request at INVITATION_SENT and DATE_ACTIVITY_SELECTED). 13) Regression test: Accept path (/pickup/address) still works - submitted pickup address with coordinates → status: PICKUP_ADDRESS_SELECTED. Test file: /app/backend_pickup_reject_test.py. NO ISSUES FOUND."
+
+agent_communication:
+
+
+## Testing Session 5 - 2026-09-20
+**Testing Agent**: Pickup Rejection Endpoint Verification
+**Focus**: POST /api/invites/{did}/pickup/reject
+
+### Tests Executed:
+1. ✅ Full Escrow Date Flow - Created invite with custom activity options and scheduled_start
+2. ✅ Recipient Activity Selection - POST /api/invites/{did}/choose with idea_id: opt1
+3. ✅ Location Proposal - POST /api/invites/{did}/location with venue, address, city, country, postal_code, lat, lng, scheduled_start
+4. ✅ Taxi Request - POST /api/invites/{did}/taxi/request with amount: 50 coins
+5. ✅ Pickup Offer - POST /api/invites/{did}/pickup/offer → status: PICKUP_ADDRESS_PENDING
+6. ✅ Pickup Rejection - POST /api/invites/{did}/pickup/reject (recipient rejects date)
+7. ✅ Full Refund Verification - Verified ALL escrow coins (300) returned to inviter
+8. ✅ Locked Slot Verification - Verified recipient's locked_slots entry with reason "rejected_date"
+9. ✅ Future Invite Blocking - Verified future invite for same slot is blocked
+10. ✅ Negative Test: Inviter Cannot Reject - POST /api/invites/{did}/pickup/reject as inviter returns 403 Forbidden
+11. ✅ Negative Test: Wrong Status - POST /api/invites/{did}/pickup/reject at INVITATION_SENT returns 400 Bad Request
+12. ✅ Negative Test: Wrong Status - POST /api/invites/{did}/pickup/reject at DATE_ACTIVITY_SELECTED returns 400 Bad Request
+13. ✅ Regression Test: Accept Path - POST /api/invites/{did}/pickup/address with coordinates → status: PICKUP_ADDRESS_SELECTED
+
+### Test Results: 13/13 PASSED (100%)
+
+### Pickup Rejection Endpoint Verified:
+- **POST /api/invites/{did}/pickup/reject**: Recipient rejects date at pickup stage
+  - Required: status must be PICKUP_ADDRESS_PENDING
+  - Required: caller must be the recipient (invited person)
+  - Returns: {ok: true, status: "CANCELLED"}
+  - Side effects:
+    - Full refund to inviter (ALL escrow coins returned)
+    - Recipient's availability slot locked with reason "rejected_date"
+    - Date status set to CANCELLED
+    - Inviter notified via notification
+
+### Test Case 1: Main Flow - Pickup Rejection
+- **Date ID**: 3a7b1090-dd00-42fe-9216-6fa9375fb4c5
+- **Inviter**: premv3@example.com (ID: d7ca101c-c020-498f-841c-159e0b0bf102)
+- **Recipient**: test_pickup_reject_4064c999@example.com (ID: 7e54c83d-311d-43ce-aa12-f8a63b3b7b92)
+- **Scheduled Start**: 2026-12-29T14:00:00+00:00
+- **Escrow Amount**: 300 coins
+- **Inviter Balance Before**: 9400 coins
+- **Inviter Balance After Escrow**: 9100 coins
+- **Inviter Balance After Refund**: 9400 coins (full refund verified)
+- **Locked Slot**:
+  ```json
+  {
+    "date": "2026-12-29",
+    "start": "2026-12-29T14:00:00+00:00",
+    "end": "2026-12-29T17:00:00+00:00",
+    "reason": "rejected_date",
+    "date_id": "3a7b1090-dd00-42fe-9216-6fa9375fb4c5",
+    "locked_at": "2026-09-20T04:08:07.658352+00:00"
+  }
+  ```
+- **Future Invite**: Blocked as expected (slot locked)
+- **Result**: ✅ All verifications passed
+
+### Test Case 2: Negative - Inviter Cannot Reject
+- **Date ID**: 17608b6d-b3b6-443f-9437-3b36484a26fa
+- **Test**: Inviter attempts to call POST /api/invites/{did}/pickup/reject
+- **Expected**: 403 Forbidden
+- **Actual**: 403 Forbidden
+- **Result**: ✅ Inviter rejection correctly blocked
+
+### Test Case 3: Negative - Wrong Status
+- **Date ID**: edf2f7ae-3cc9-471c-a27b-372d89b12e69
+- **Test 1**: Recipient attempts to reject at INVITATION_SENT status
+  - **Expected**: 400 Bad Request
+  - **Actual**: 400 Bad Request
+  - **Result**: ✅ Rejection correctly blocked
+- **Test 2**: Recipient attempts to reject at DATE_ACTIVITY_SELECTED status
+  - **Expected**: 400 Bad Request
+  - **Actual**: 400 Bad Request
+  - **Result**: ✅ Rejection correctly blocked
+
+### Test Case 4: Regression - Accept Path Still Works
+- **Date ID**: a0ce2d41-ad16-4f1c-8fd8-e8fa713cfb35
+- **Test**: Walk to PICKUP_ADDRESS_PENDING and submit pickup address with coordinates
+- **Request Body**:
+  ```json
+  {
+    "pickup_address": "123 King St, Toronto, M5H, Canada",
+    "lat": 43.6489,
+    "lng": -79.3817,
+    "city": "Toronto",
+    "country": "Canada",
+    "postal_code": "M5H"
+  }
+  ```
+- **Expected**: 200 OK, status: PICKUP_ADDRESS_SELECTED
+- **Actual**: 200 OK, status: PICKUP_ADDRESS_SELECTED
+- **Result**: ✅ Accept path still works correctly
+
+### Status Flow Verified:
+```
+INVITATION_SENT 
+  → DATE_ACTIVITY_SELECTED (recipient chooses activity)
+  → LOCATION_PROPOSED (inviter proposes location)
+  → TAXI_REQUESTED (recipient requests taxi)
+  → PICKUP_ADDRESS_PENDING (inviter offers pickup)
+  → CANCELLED (recipient rejects date via /pickup/reject)
+```
+
+### Alternative Flow (Accept Path):
+```
+INVITATION_SENT 
+  → DATE_ACTIVITY_SELECTED (recipient chooses activity)
+  → LOCATION_PROPOSED (inviter proposes location)
+  → TAXI_REQUESTED (recipient requests taxi)
+  → PICKUP_ADDRESS_PENDING (inviter offers pickup)
+  → PICKUP_ADDRESS_SELECTED (recipient submits pickup address via /pickup/address)
+```
+
+### Test Users Created:
+- **Inviter**: premv3@example.com (ID: d7ca101c-c020-498f-841c-159e0b0bf102, Coins: 9400)
+- **Recipients**: Fresh test users (test_pickup_reject_*@example.com)
+
+### Environment Verified:
+- Backend URL: https://login-saver-web.preview.emergentagent.com/api
+- MongoDB: Connected and operational
+- All routes properly prefixed with /api
+- Test file: /app/backend_pickup_reject_test.py
+
+### Issues Found: NONE
+
+### Recommendations:
+- ✅ Pickup rejection endpoint is production-ready
+- ✅ Full refund to inviter working correctly (ALL escrow coins returned)
+- ✅ Recipient slot locking working correctly (reason: "rejected_date")
+- ✅ Future invite blocking working correctly (slot locked prevents new invites)
+- ✅ Access control working correctly (recipient-only endpoint)
+- ✅ Status validation working correctly (only works at PICKUP_ADDRESS_PENDING)
+- ✅ Notification sent to inviter
+- ✅ Accept path (/pickup/address) still works (regression test passed)
+- ✅ Full escrow date flow working end-to-end
+
+    -agent: "main"
+    -message: "Test POST /api/invites/{did}/pickup/reject. Walk the flow to PICKUP_ADDRESS_PENDING (register 2 users, seed inviter coins, invite, accept/select activity, inviter proposes location, invited requests taxi, inviter offers pickup via /pickup/offer). Then as the INVITED user call /pickup/reject and verify: (1) 200 and status becomes CANCELLED, (2) ALL escrow coins refunded to the INVITER, (3) invited user's locked_slots has reason 'rejected_date', (4) future invite for the same slot blocked with SLOT_LOCKED. Negative: inviter cannot call it (recipient-only, 403), and it fails (400) outside PICKUP_ADDRESS_PENDING. Also confirm the accept path (/pickup/address) still works. Reference backend_location_reject_test.py and backend_pickup_address_test.py. Do NOT test Stripe."
+    -agent: "testing"
+    -message: "✅ PICKUP REJECTION ENDPOINT TEST COMPLETE - ALL TESTS PASSED (4/4). The pickup rejection endpoint is fully functional. FLOW VERIFIED: Full escrow date flow from INVITATION_SENT → DATE_ACTIVITY_SELECTED → LOCATION_PROPOSED → TAXI_REQUESTED → PICKUP_ADDRESS_PENDING → CANCELLED (via rejection). ENDPOINTS TESTED: POST /api/invites (create invite with activity_option_1/2/3 + scheduled_start), POST /api/invites/{did}/choose (recipient chooses activity), POST /api/invites/{did}/location (inviter proposes location), POST /api/invites/{did}/taxi/request (recipient requests taxi), POST /api/invites/{did}/pickup/offer (inviter offers pickup), POST /api/invites/{did}/pickup/reject (recipient rejects date), POST /api/invites/{did}/pickup/address (recipient submits pickup address - regression test), GET /api/invites/{did} (verify date status), GET /api/auth/me (verify coin balance and locked_slots). VERIFIED: (1) Recipient can reject date at pickup stage: 200 response, status becomes CANCELLED. (2) Full refund to inviter: ALL escrow coins (300) returned to inviter, balance went from 9100 (after escrow) back to 9400 (original). (3) Recipient slot locked: locked_slots entry created with reason='rejected_date', start=scheduled_start, date_id=did. (4) Future invite blocked: Attempting to create a new invite for the same slot fails as expected. (5) Negative test: Inviter cannot reject (403 Forbidden - recipient-only endpoint). (6) Negative test: Cannot reject at wrong status (400 Bad Request when status is not PICKUP_ADDRESS_PENDING). (7) Regression test: Accept path (/pickup/address) still works - submitted pickup address with coordinates, status becomes PICKUP_ADDRESS_SELECTED. NO ISSUES FOUND. Test users: premv3@example.com (inviter with 9400 coins), fresh test recipients. Test file: /app/backend_pickup_reject_test.py."
