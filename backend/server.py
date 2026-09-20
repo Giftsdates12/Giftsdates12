@@ -283,6 +283,37 @@ EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY")
 EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "GiftsDates")
 
+# ---------- SMS (Twilio) ----------
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM = os.environ.get("TWILIO_FROM", "")  # e.g. +15551234567 or a Messaging Service SID (MG...)
+
+async def send_sms(*, to: str, body: str) -> str:
+    """Send an SMS via Twilio if configured. Returns delivery status.
+    When Twilio creds are absent it returns 'not_configured' (no fake success)
+    so texting activates automatically once creds are added."""
+    to = (to or "").strip()
+    if not to:
+        return "no_number"
+    if not (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM):
+        return "not_configured"
+    try:
+        data = {"To": to, "Body": body}
+        if TWILIO_FROM.startswith("MG"):
+            data["MessagingServiceSid"] = TWILIO_FROM
+        else:
+            data["From"] = TWILIO_FROM
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(
+                f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json",
+                auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN), data=data)
+        r.raise_for_status()
+        return "sent"
+    except Exception as e:
+        logging.error(f"SMS send failed: {e}")
+        return "failed"
+
+
 def _email_safe(subject: str, html: str) -> bool:
     low = f"{subject}\n{html}".lower()
     if any(tag in low for tag in ("<form", "<input", "<textarea", "<select")): return False
@@ -319,17 +350,26 @@ def _email_html(title: str, body: str) -> str:
             f'Sent by GiftsDates · Luxury Dating. We never ask for your password or card details by email.</div>'
             f'</td></tr></table></td></tr></table>')
 
-async def notify(user_id: str, ntype: str, title: str, body: str, data: dict | None = None, email: bool = False, link: str | None = None, cta: str = "View on GiftsDates"):
+async def notify(user_id: str, ntype: str, title: str, body: str, data: dict | None = None, email: bool = False, link: str | None = None, cta: str = "View on GiftsDates", sms: bool = False, sms_body: str | None = None):
     now = datetime.now(timezone.utc).isoformat()
     await db.notifications.insert_one({"id": str(uuid.uuid4()), "user_id": user_id, "type": ntype, "title": title,
                                        "body": body, "data": data or {}, "read": False, "created_at": now})
-    if email:
-        u = await db.users.find_one({"id": user_id}, {"email": 1})
-        if u and u.get("email"):
-            html = _email_cta_html(title, body, link, cta) if link else _email_html(title, body)
-            sent = await send_email(to=u["email"], subject=f"{title} · GiftsDates", html=html)
-            await db.email_outbox.insert_one({"id": str(uuid.uuid4()), "to": u["email"], "subject": title, "body": body,
-                                              "status": "sent" if sent else "failed", "created_at": now})
+    if email or sms:
+        u = await db.users.find_one({"id": user_id}, {"email": 1, "phone": 1})
+    else:
+        u = None
+    if email and u and u.get("email"):
+        html = _email_cta_html(title, body, link, cta) if link else _email_html(title, body)
+        sent = await send_email(to=u["email"], subject=f"{title} · GiftsDates", html=html)
+        await db.email_outbox.insert_one({"id": str(uuid.uuid4()), "to": u["email"], "subject": title, "body": body,
+                                          "status": "sent" if sent else "failed", "created_at": now})
+    if sms and u and u.get("phone"):
+        text = (sms_body or f"{title} — {body}")
+        if link:
+            text = f"{text} {link}"
+        status = await send_sms(to=u["phone"], body=text[:600])
+        await db.sms_outbox.insert_one({"id": str(uuid.uuid4()), "to": u["phone"], "body": text,
+                                        "status": status, "created_at": now})
 
 # Fixed inbox that receives admin alerts (new signups, ID-approval requests, etc.)
 ADMIN_NOTIFY_EMAIL = os.environ.get("ADMIN_NOTIFY_EMAIL", "giftsdates@gmail.com")
@@ -428,6 +468,7 @@ class RegisterReq(BaseModel):
     city: str
     country: str
     bio: Optional[str] = ""
+    phone: Optional[str] = None
     referral_code: Optional[str] = None
     spin_token: Optional[str] = None
     language: Optional[str] = "en"
@@ -467,6 +508,7 @@ class ProfileUpdate(BaseModel):
     languages_spoken: Optional[List[str]] = None
     job_title: Optional[str] = None
     income: Optional[str] = None
+    phone: Optional[str] = None
     income_custom: Optional[str] = None
     kids: Optional[str] = None
     smoking: Optional[str] = None
@@ -836,6 +878,7 @@ async def register(req: RegisterReq):
         "interested_in": req.interested_in, "orientation": req.orientation or "straight", "city": req.city, "country": req.country,
         "lat": req.lat, "lng": req.lng,
         "bio": req.bio or "", "interests": [], "photos": [], "language": req.language or "en",
+        "phone": (req.phone or "").strip() or None,
         "coins": 0,  # no welcome bonus (Spin & Win only)
         "escrow": 0.0, "withdrawable": 0.0,
         "premium_until": None, "verified": False,
@@ -3374,7 +3417,8 @@ async def create_invite(req: InviteCreateReq, user=Depends(get_current_user)):
     await db.dates.insert_one(doc)
     await notify(req.recipient_id, "date_request", "You received a new date invitation",
                  f"{user['name']} invited you on a date ({proposed_start[:16].replace('T', ' ')}) with {len(options)} option(s). Choose one to confirm, or reject.",
-                 {"date_id": did}, email=True, link=DATES_LINK, cta="View Invitation")
+                 {"date_id": did}, email=True, link=DATES_LINK, cta="View Invitation",
+                 sms=True, sms_body=f"GiftsDates: {user['name']} invited you on a date with {len(options)} options. Choose one to confirm, or reject:")
     return {"id": did, "status": "INVITATION_SENT"}
 
 async def _get_party(did, uid, role=None):
@@ -3394,7 +3438,8 @@ async def invite_choose(did: str, req: ChooseIdeaReq, user=Depends(get_current_u
     await db.dates.update_one({"id": did}, {"$set": {"chosen_idea": {"idea_id": opt["idea_id"], "name": opt["name"]}, "selected_activity": opt["name"]}})
     await _log_status(did, "DATE_ACTIVITY_SELECTED", user["id"])
     await notify(d["inviter_id"], "date_accepted", "Your date invitation was accepted",
-                 f"{user['name']} chose: {opt['name']}. Now propose a meeting location.", {"date_id": did}, email=True, link=DATES_LINK, cta="View Date")
+                 f"{user['name']} chose: {opt['name']}. Now propose a meeting location.", {"date_id": did}, email=True, link=DATES_LINK, cta="View Date",
+                 sms=True, sms_body=f"GiftsDates: {user['name']} accepted your date and chose {opt['name']}. Open the app to confirm & propose a location:")
     return {"ok": True, "status": "DATE_ACTIVITY_SELECTED"}
 
 @api.post("/invites/{did}/location")
@@ -3413,7 +3458,8 @@ async def invite_location(did: str, req: InviteLocationReq, user=Depends(get_cur
     await db.dates.update_one({"id": did}, {"$set": {"location": loc}})
     await _log_status(did, "LOCATION_PROPOSED", user["id"])
     await notify(d["recipient_id"], "date_location", "A meeting location has been proposed",
-                 f"{user['name']} proposed {req.venue}. Confirm it or request a taxi.", {"date_id": did}, email=True, link=DATES_LINK, cta="View Date")
+                 f"{user['name']} proposed {req.venue}. Confirm it or request a taxi.", {"date_id": did}, email=True, link=DATES_LINK, cta="View Date",
+                 sms=True, sms_body=f"GiftsDates: {user['name']} proposed {req.venue}. Open the app to confirm the date or request a taxi:")
     return {"ok": True, "status": "LOCATION_PROPOSED"}
 
 @api.post("/invites/{did}/location/confirm")

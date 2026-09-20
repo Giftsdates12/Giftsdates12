@@ -51,7 +51,7 @@ export default function Auth() {
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const [mode, setMode] = useState(sp.get("register") ? "register" : "login");
-  const [f, setF] = useState({ email: "", password: "", name: "", age: 25, gender: "female", genders: ["female"], interested_in: "male", orientation: "straight", city: "", country: "", bio: "", referral_code: sp.get("ref") || "", language: lang, birth_day: "", birth_month: "", birth_year: "", lat: null, lng: null });
+  const [f, setF] = useState({ email: "", password: "", name: "", age: 25, gender: "female", genders: ["female"], interested_in: "male", orientation: "straight", city: "", country: "", bio: "", phone: "", referral_code: sp.get("ref") || "", language: lang, birth_day: "", birth_month: "", birth_year: "", lat: null, lng: null });
   const [busy, setBusy] = useState(false);
   const [locating, setLocating] = useState(false);
   const [agreed, setAgreed] = useState(false);
@@ -241,6 +241,9 @@ export default function Auth() {
               )}
               <div><Label className="text-xs text-slate-400">{t("bio", lang)}</Label>
                 <Textarea data-testid="auth-bio-input" rows={2} value={f.bio} onChange={e => setF({ ...f, bio: e.target.value })} className="bg-white/5 border-white/10 mt-1" /></div>
+              <div><Label className="text-xs text-slate-400">{t("phone_optional", lang)}</Label>
+                <Input data-testid="auth-phone-input" type="tel" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} placeholder="+1 555 123 4567" className="bg-white/5 border-white/10 mt-1" />
+                <p className="text-[11px] text-slate-500 mt-1">{t("phone_hint", lang)}</p></div>
               <div><Label className="text-xs text-slate-400">{t("referral_optional", lang)}</Label>
                 <Input data-testid="auth-referral-input" value={f.referral_code} onChange={e => setF({ ...f, referral_code: e.target.value.toUpperCase() })} className="bg-white/5 border-white/10 mt-1 font-mono" /></div>
               <label className="flex items-start gap-2.5 pt-1 cursor-pointer" data-testid="auth-consent-label">
