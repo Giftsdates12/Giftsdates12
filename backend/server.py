@@ -3302,6 +3302,11 @@ class InviteTaxiReq(BaseModel):
     amount: int
 class PickupAddrReq(BaseModel):
     pickup_address: str
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    postal_code: Optional[str] = None
 class InviteReportReq(BaseModel):
     reasons: list[str] = []
     details: str
@@ -3461,7 +3466,13 @@ async def invite_pickup_address(did: str, req: PickupAddrReq, user=Depends(get_c
     d = await _get_party(did, user["id"], "recipient")
     if d["status"] != "PICKUP_ADDRESS_PENDING": raise HTTPException(400, "Cannot submit pickup now")
     if not req.pickup_address.strip(): raise HTTPException(400, "Address required")
-    await db.dates.update_one({"id": did}, {"$set": {"transportation.pickup_address": req.pickup_address.strip(), "transportation.status": "address_selected"}})
+    _pu = {"transportation.pickup_address": req.pickup_address.strip(), "transportation.status": "address_selected"}
+    if req.lat is not None and req.lng is not None:
+        _pu["transportation.pickup_lat"] = req.lat; _pu["transportation.pickup_lng"] = req.lng
+    if req.city: _pu["transportation.pickup_city"] = req.city.strip()
+    if req.country: _pu["transportation.pickup_country"] = req.country.strip()
+    if req.postal_code: _pu["transportation.pickup_postal_code"] = req.postal_code.strip()
+    await db.dates.update_one({"id": did}, {"$set": _pu})
     await _log_status(did, "PICKUP_ADDRESS_SELECTED", user["id"])
     await notify(d["inviter_id"], "date_taxi", "Pickup address shared", f"{user['name']} shared a pickup address. Confirm pickup or pay taxi instead.", {"date_id": did}, email=True, link=DATES_LINK, cta="View Date")
     return {"ok": True, "status": "PICKUP_ADDRESS_SELECTED"}

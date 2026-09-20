@@ -74,7 +74,7 @@ function DateCard({ d, reload }) {
   const [choose, setChoose] = useState("");
   const [loc, setLoc] = useState({});
   const [venue, setVenue] = useState("");
-  const [taxi, setTaxi] = useState(""); const [pickup, setPickup] = useState("");
+  const [taxi, setTaxi] = useState(""); const [pickup, setPickup] = useState({});
   const [showReport, setShowReport] = useState(false);
   const [reasons, setReasons] = useState([]); const [details, setDetails] = useState(""); const [evidence, setEvidence] = useState("");
   const [showVerify, setShowVerify] = useState(false); const [vfile, setVfile] = useState(null); const [vok, setVok] = useState(false);
@@ -230,9 +230,13 @@ function DateCard({ d, reload }) {
           </div>
         )}
         {d.status === "PICKUP_ADDRESS_PENDING" && !isInv && (
-          <div className="w-full flex gap-2 items-center" data-testid={`date-pickup-addr-${d.id}`}>
-            <Input data-testid={`date-pickup-input-${d.id}`} value={pickup} onChange={e => setPickup(e.target.value)} placeholder={tr("id_pickup_ph")} className="bg-white/5 border-white/10 h-9" />
-            <Button data-testid={`date-pickup-submit-${d.id}`} disabled={busy || !pickup} onClick={() => act(() => post("/pickup/address", { pickup_address: pickup }))} className="rose-btn text-white border-0 h-9">{tr("id_send")}</Button>
+          <div className="w-full space-y-2 rounded-lg border border-white/10 p-2" data-testid={`date-pickup-addr-${d.id}`}>
+            <div className="text-xs text-amber-200">{tr("id_pickup_share_hint")}</div>
+            <AddressPicker value={pickup} onChange={setPickup} />
+            <Button data-testid={`date-pickup-submit-${d.id}`} disabled={busy || !((pickup.address || "").trim())} onClick={() => act(() => post("/pickup/address", {
+              pickup_address: [pickup.address, pickup.city, pickup.postal_code, pickup.country].filter(Boolean).join(", ") || pickup.address,
+              lat: pickup.lat, lng: pickup.lng, city: pickup.city, country: pickup.country, postal_code: pickup.postal_code,
+            }))} className="rose-btn text-white border-0 h-9">{tr("id_send")}</Button>
           </div>
         )}
         {d.status === "PICKUP_ADDRESS_SELECTED" && isInv && (

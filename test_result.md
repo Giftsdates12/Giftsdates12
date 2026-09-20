@@ -331,3 +331,129 @@ agent_communication:
 **Premium**: premium_monthly, premium_lite_monthly
 **VIP Subscription**: vip_monthly (NOT tested - requires card)
 **Custom**: custom (with usd_amount parameter)
+
+## PICKUP ADDRESS (manual + maps) TEST (added by main)
+backend:
+  - task: "Pickup address accepts optional coordinates/details"
+    implemented: true
+    working: true
+    file: "server.py"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Extended PickupAddrReq + POST /api/invites/{did}/pickup/address to accept optional lat,lng,city,country,postal_code and store them under transportation.pickup_*. Backwards compatible (pickup_address still required). Frontend now uses AddressPicker (manual + Google Maps/OSM) for the invited person's pickup address."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PICKUP ADDRESS ENDPOINT FULLY WORKING. Tested complete escrow date flow: 1) Registered two users (inviter: premv3@example.com with 10000 coins, recipient: fresh test users). 2) Created date invite with custom activity options and scheduled_start. 3) Recipient chose activity (opt1). 4) Inviter proposed location with venue details. 5) Recipient requested taxi (50 coins) → status: TAXI_REQUESTED. 6) Inviter offered pickup → status: PICKUP_ADDRESS_PENDING. 7) Recipient submitted pickup address WITH coordinates (lat: 43.6489, lng: -79.3817, city: Toronto, country: Canada, postal_code: M5H) → status: PICKUP_ADDRESS_SELECTED. 8) Verified transportation object contains ALL fields: pickup_address, pickup_lat, pickup_lng, pickup_city, pickup_country, pickup_postal_code. 9) Tested backwards compatibility: submitted pickup address WITHOUT coordinates (only pickup_address field) → status: PICKUP_ADDRESS_SELECTED, optional fields absent/None. Both test cases PASSED. Date IDs: a42b3d2a-e211-4664-ac9e-75f2d36c40e9 (with coords), 10a0c8d2-3e83-4f65-be5f-27ce85e60918 (without coords). Test file: /app/backend_pickup_address_test.py. NO ISSUES FOUND."
+
+agent_communication:
+
+
+## Testing Session 3 - 2026-09-20
+**Testing Agent**: Pickup Address Endpoint with Optional Coordinates
+**Focus**: POST /api/invites/{did}/pickup/address Extended Functionality
+
+### Tests Executed:
+1. ✅ Full Escrow Date Flow - Created invite with custom activity options and scheduled_start
+2. ✅ Recipient Activity Selection - POST /api/invites/{did}/choose with idea_id: opt1
+3. ✅ Location Proposal - POST /api/invites/{did}/location with venue, address, city, country, postal_code, lat, lng
+4. ✅ Taxi Request - POST /api/invites/{did}/taxi/request with amount: 50 coins
+5. ✅ Pickup Offer - POST /api/invites/{did}/pickup/offer → status: PICKUP_ADDRESS_PENDING
+6. ✅ Pickup Address WITH Coordinates - POST /api/invites/{did}/pickup/address with all fields
+7. ✅ Pickup Address WITHOUT Coordinates - POST /api/invites/{did}/pickup/address with only pickup_address (backwards compat)
+8. ✅ Transportation Object Verification - GET /api/invites/{did} confirms all fields stored
+
+### Test Results: 8/8 PASSED (100%)
+
+### Pickup Address Endpoint Verified:
+- **POST /api/invites/{did}/pickup/address**: Accepts pickup address with optional coordinates
+  - Required: pickup_address (string)
+  - Optional: lat (float), lng (float), city (string), country (string), postal_code (string)
+  - Returns: {ok: true, status: "PICKUP_ADDRESS_SELECTED"}
+  
+### Test Case 1: WITH Coordinates
+- **Date ID**: a42b3d2a-e211-4664-ac9e-75f2d36c40e9
+- **Request Body**:
+  ```json
+  {
+    "pickup_address": "123 King St, Toronto, M5H, Canada",
+    "lat": 43.6489,
+    "lng": -79.3817,
+    "city": "Toronto",
+    "country": "Canada",
+    "postal_code": "M5H"
+  }
+  ```
+- **Transportation Object**:
+  ```json
+  {
+    "type": "pickup",
+    "taxi_amount": 50,
+    "status": "address_selected",
+    "requested_by": "eddcd3ee-5027-4eea-9c40-6377e0108a1a",
+    "pickup_address": "123 King St, Toronto, M5H, Canada",
+    "pickup_city": "Toronto",
+    "pickup_country": "Canada",
+    "pickup_lat": 43.6489,
+    "pickup_lng": -79.3817,
+    "pickup_postal_code": "M5H"
+  }
+  ```
+- **Result**: ✅ All fields stored correctly
+
+### Test Case 2: WITHOUT Coordinates (Backwards Compatibility)
+- **Date ID**: 10a0c8d2-3e83-4f65-be5f-27ce85e60918
+- **Request Body**:
+  ```json
+  {
+    "pickup_address": "456 Bay St, Toronto, Ontario, Canada"
+  }
+  ```
+- **Transportation Object**:
+  ```json
+  {
+    "type": "pickup",
+    "taxi_amount": 50,
+    "status": "address_selected",
+    "requested_by": "3d9c2e2a-5270-4bff-a571-3c44a9674fb7",
+    "pickup_address": "456 Bay St, Toronto, Ontario, Canada"
+  }
+  ```
+- **Result**: ✅ Works correctly, optional fields absent/None
+
+### Status Flow Verified:
+```
+INVITATION_SENT 
+  → DATE_ACTIVITY_SELECTED (recipient chooses activity)
+  → LOCATION_PROPOSED (inviter proposes location)
+  → TAXI_REQUESTED (recipient requests taxi)
+  → PICKUP_ADDRESS_PENDING (inviter offers pickup)
+  → PICKUP_ADDRESS_SELECTED (recipient submits pickup address)
+```
+
+### Test Users Created:
+- **Inviter**: premv3@example.com (ID: d7ca101c-c020-498f-841c-159e0b0bf102, Coins: 10000)
+- **Recipient 1**: test_pickup_fd9b7329@example.com (ID: eddcd3ee-5027-4eea-9c40-6377e0108a1a)
+- **Recipient 2**: test_pickup_d5aaaa99@example.com (ID: 3d9c2e2a-5270-4bff-a571-3c44a9674fb7)
+
+### Environment Verified:
+- Backend URL: https://login-saver-web.preview.emergentagent.com/api
+- MongoDB: Connected and operational
+- All routes properly prefixed with /api
+- Test file: /app/backend_pickup_address_test.py
+
+### Issues Found: NONE
+
+### Recommendations:
+- ✅ Pickup address endpoint extension is production-ready
+- ✅ All optional coordinate fields (lat, lng, city, country, postal_code) stored correctly
+- ✅ Backwards compatibility maintained (works with only pickup_address)
+- ✅ Status transitions working correctly
+- ✅ Transportation object structure correct
+- ✅ Full escrow date flow working end-to-end
+
+    -agent: "main"
+    -message: "Please run the full escrow date flow to reach PICKUP_ADDRESS_PENDING and test POST /api/invites/{did}/pickup/address. Verify (1) it still works with only pickup_address, and (2) it accepts and stores optional lat/lng/city/country/postal_code (check the date's transportation object reflects pickup_address and pickup_lat/pickup_lng). Use backend_date_flow_test.py as reference for how to walk the flow (register two users, invite, accept, choose location, request taxi, offer pickup, then submit pickup address). Do NOT test Stripe here."
+    -agent: "testing"
+    -message: "✅ PICKUP ADDRESS ENDPOINT TEST COMPLETE - ALL TESTS PASSED (2/2). The pickup address endpoint extension is fully functional. FLOW VERIFIED: Full escrow date flow from INVITATION_SENT → DATE_ACTIVITY_SELECTED → LOCATION_PROPOSED → TAXI_REQUESTED → PICKUP_ADDRESS_PENDING → PICKUP_ADDRESS_SELECTED. ENDPOINTS TESTED: POST /api/invites (create invite with activity_option_1/2/3 + scheduled_start), POST /api/invites/{did}/choose (recipient chooses activity), POST /api/invites/{did}/location (inviter proposes location), POST /api/invites/{did}/taxi/request (recipient requests taxi), POST /api/invites/{did}/pickup/offer (inviter offers pickup), POST /api/invites/{did}/pickup/address (recipient submits pickup address WITH/WITHOUT coordinates), GET /api/invites/{did} (verify transportation object). VERIFIED: (1) Pickup address WITH coordinates: All fields stored correctly (pickup_address, pickup_lat, pickup_lng, pickup_city, pickup_country, pickup_postal_code). (2) Backwards compatibility: Works with only pickup_address field, optional fields absent. Status transitions correct. Transportation object structure correct. NO ISSUES FOUND. Test users: premv3@example.com (inviter with 10000 coins), fresh test recipients. Test file: /app/backend_pickup_address_test.py."
