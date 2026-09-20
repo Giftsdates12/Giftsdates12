@@ -143,6 +143,17 @@ function DateCard({ d, reload }) {
     const total = Number(d.total_hold || d.coins || 0);
     if (window.confirm(tr("id_reject_date_warning", { total }) + "\n\n" + tr("id_reject_location_confirm"))) act(() => post("/pickup/reject"));
   };
+  const cancelDate = () => {
+    const total = Number(d.total_hold || d.coins || 0);
+    let msg;
+    if (isInv) {
+      const { inv, rec, fee } = refuseSplit();
+      msg = tr("id_cancel_split_warning", { total, inv, rec, fee });
+    } else {
+      msg = tr("id_reject_date_note", { total });
+    }
+    if (window.confirm(msg + "\n\n" + tr("id_reject_location_confirm"))) act(() => post("/cancel"));
+  };
 
   const submitReport = () => act(async () => {
     if (details.trim().length < 10) { throw { response: { data: { detail: tr("id_report_min") } } }; }
@@ -273,7 +284,7 @@ function DateCard({ d, reload }) {
           </div>
         )}
         {!TERMINAL.includes(d.status) && d.status !== "PHOTO_VERIFICATION_PENDING" && !(d.status === "INVITATION_SENT" && !isInv) && (
-          <Button data-testid={`date-cancel-${d.id}`} disabled={busy} onClick={() => act(() => post("/cancel"))} variant="ghost" className="h-9 text-slate-400 hover:text-rose-300">{tr("id_cancel")}</Button>
+          <Button data-testid={`date-cancel-${d.id}`} disabled={busy} onClick={cancelDate} variant="outline" className="h-9 bg-rose-500/10 border-rose-500/40 text-rose-300 hover:bg-rose-500/20"><X size={14} className="me-1" />{tr("id_cancel_date")}</Button>
         )}
         {reportOpen && <Button data-testid={`date-report-${d.id}`} onClick={() => setShowReport(v => !v)} variant="outline" className="h-9 bg-rose-500/10 border-rose-500/40 text-rose-300"><Flag size={14} className="me-1" />{tr("id_report_this")}</Button>}
         {canVerify && ["DATE_CONFIRMED", "DATE_COMPLETED_PENDING_VERIFICATION"].includes(d.status) &&
